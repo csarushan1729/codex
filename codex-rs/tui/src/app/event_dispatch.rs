@@ -2108,6 +2108,9 @@ impl App {
                     }
                 }
             }
+            AppEvent::OpenServiceTierScopePrompt { service_tier } => {
+                self.chat_widget.open_service_tier_scope_prompt(service_tier);
+            }
             AppEvent::PersistServiceTierSelection { service_tier } => {
                 self.refresh_status_line();
                 self.config.service_tier = service_tier.clone();

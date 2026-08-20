@@ -3,6 +3,10 @@
 use super::ChatWidget;
 use crate::app_command::AppCommand;
 use crate::app_event::AppEvent;
+use crate::bottom_pane::SelectionAction;
+use crate::bottom_pane::SelectionItem;
+use crate::bottom_pane::SelectionViewParams;
+use crate::bottom_pane::popup_consts::standard_popup_hint_line;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use crate::service_tier_resolution;
 use codex_features::Feature;
@@ -104,6 +108,9 @@ impl ChatWidget {
     }
 
     fn set_service_tier_selection(&mut self, service_tier: Option<String>) {
+        // Apply immediately for the *current session only*. This does not
+        // touch config.toml — see `open_service_tier_scope_prompt` below for
+        // the (opt-in) path that persists the choice as a future default.
         self.set_service_tier(service_tier.clone());
         self.app_event_tx
             .send(AppEvent::CodexOp(AppCommand::override_turn_context(
@@ -121,7 +128,56 @@ impl ChatWidget {
                 /*personality*/ None,
             )));
         self.app_event_tx
-            .send(AppEvent::PersistServiceTierSelection { service_tier });
+            .send(AppEvent::OpenServiceTierScopePrompt { service_tier });
+    }
+
+    /// Ask the user whether the service-tier change they just made for this
+    /// session should also become the default for future sessions. Persisting
+    /// to config.toml only happens if they explicitly choose "Save as default".
+    pub(crate) fn open_service_tier_scope_prompt(&mut self, service_tier: Option<String>) {
+        let label = service_tier
+            .as_deref()
+            .unwrap_or(SERVICE_TIER_DEFAULT_REQUEST_VALUE)
+            .to_string();
+        let subtitle = format!("Using \"{label}\" for this session. Save it as your default?");
+
+        let session_only_actions: Vec<SelectionAction> = vec![Box::new(|_tx| {
+            // No-op: already applied to the current session above.
+        })];
+
+        let save_default_actions: Vec<SelectionAction> = vec![Box::new({
+            let service_tier = service_tier.clone();
+            move |tx| {
+                tx.send(AppEvent::PersistServiceTierSelection {
+                    service_tier: service_tier.clone(),
+                });
+            }
+        })];
+
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Service tier".to_string()),
+            subtitle: Some(subtitle),
+            footer_hint: Some(standard_popup_hint_line()),
+            items: vec![
+                SelectionItem {
+                    name: "Use for this session only".to_string(),
+                    description: Some("Default value stays as-is for new sessions.".to_string()),
+                    actions: session_only_actions,
+                    dismiss_on_select: true,
+                    ..Default::default()
+                },
+                SelectionItem {
+                    name: "Save as default".to_string(),
+                    description: Some(
+                        "Writes service_tier to config.toml for future sessions.".to_string(),
+                    ),
+                    actions: save_default_actions,
+                    dismiss_on_select: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
     }
 
     fn model_supports_service_tier(&self, model: &str, service_tier: &str) -> bool {

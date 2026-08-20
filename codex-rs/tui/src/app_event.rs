@@ -913,6 +913,12 @@ pub(crate) enum AppEvent {
         service_tier: Option<String>,
     },
 
+    /// Ask whether a service-tier change just applied to the current
+    /// session should also be saved as the default for future sessions.
+    OpenServiceTierScopePrompt {
+        service_tier: Option<String>,
+    },
+
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {
         model: ModelPreset,
